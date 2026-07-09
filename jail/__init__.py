@@ -25,12 +25,10 @@
 import typing
 import ctypes
 import errno
-import itertools
 import ipaddress
 import os
 
 import freebsd_sysctl
-import freebsd_sysctl.types
 
 from jail.__version__ import __version__
 from jail.libc import dll
@@ -85,8 +83,7 @@ class IovecKey:
         self._iovec_buffer: typing.Optional[ctypes.Array] = None
 
     def __repr__(self) -> str:
-        return self.__str__();
-        #return f"<{self.__class__.__name__}: \"{str(self)}\">"
+        return self.__str__()
 
     def __str__(self) -> str:
         return self.value.decode()
@@ -100,8 +97,10 @@ class IovecKey:
     def __hash__(self) -> int:
         return hash(self.value)
 
-    def __eq__(self, other: 'IovecKey') -> bool:
-        return self.__hash__() == other.__hash__()
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, IovecKey) is False:
+            return NotImplemented
+        return self.value == other.value
 
     @property
     def iovec(self) -> Iovec:
@@ -149,7 +148,9 @@ class IovecValue:
             if len(value) == 0:
                 return None
             elif len(value) > _jail_max_af_ips():
-                raise ValueError("Too many IPs (max {JAIL_MAX_AF_IPS}")
+                raise ValueError(
+                    f"Too many IPs (max {_jail_max_af_ips()})"
+                )
             elif isinstance(value[0], ipaddress.IPv4Address):
                 list_type = jail.types.in_addr
                 value_type = int
@@ -162,7 +163,7 @@ class IovecValue:
             return output_type(*[list_type(value_type(x)) for x in value])
         elif isinstance(value, int) or (value is None):
             return value
-        return value + (NULL_BYTES * (value[-1:] == NULL_BYTES))
+        return value
 
     @property
     def raw_value(self) -> RawIovecValue:
@@ -190,8 +191,7 @@ class IovecValue:
             raise TypeError("IovecValue accepts list, bytes, int, str or None")
 
     def __repr__(self) -> str:
-        return self.__str__();
-        #return f"<{self.__class__.__name__}: \"{str(self)}\">"
+        return self.__str__()
 
     def __len__(self) -> int:
         value = self.value
@@ -223,7 +223,10 @@ class IovecValue:
 
         if self._iovec_buffer is None:
             if isinstance(value, bytes) is True:
-                data = value + NULL_BYTES
+                if value.endswith(NULL_BYTES) is True:
+                    data = value
+                else:
+                    data = value + NULL_BYTES
                 self._iovec_buffer = ctypes.create_string_buffer(
                     data,
                     len(data)
@@ -242,60 +245,6 @@ class IovecValue:
             ctypes.c_void_p(ctypes.addressof(self._iovec_buffer)),
             ctypes.sizeof(self._iovec_buffer)
         )
-
-
-class ByteDict(dict):
-    """A dict with bytes as keys."""
-
-    cached_sysctls: typing.Dict[str, freebsd_sysctl.Sysctl] = {}
-
-    def __init__(
-        self,
-        data: typing.Dict[
-            typing.Union[bytes, str],
-            IovecValue
-        ]={}
-    ) -> None:
-        super().__init__(data)
-
-    def __setitem__(
-        self,
-        key: typing.Union[bytes, str],
-        value: IovecValue
-    ) -> None:
-        if isinstance(value, IovecValue) is False:
-            raise TypeError("IovecValue expected")
-
-        sysctl = self.__get_sysctl(key)
-
-        if sysctl.ctl_type == freebsd_sysctl.types.STRING:
-            if isinstance(value.value, bytes) is False:
-                raise TypeError("IovecValue of bytes expected")
-
-            max_size = int(sysctl.value)
-            if len(value.value) > max_size:
-                raise ValueError("byte sequence too long")
-
-        super().__setitem__(self.__getkey(key), value)
-
-    def __get_sysctl(self, key: str) -> freebsd_sysctl.Sysctl:
-        _key = self.__getkey(key).decode("UTF-8")
-        if _key not in self.cached_sysctls.keys():
-            self.cached_sysctls[_key] = freebsd_sysctl.Sysctl(_key)
-        return self.cached_sysctls[_key]
-
-    def __getitem__(
-        self,
-        key: typing.Union[bytes, str]
-    ) -> IovecValue:
-        return super().__getitem__(self.__getkey(key))
-
-    def __getkey(self, key: typing.Union[bytes, str]) -> bytes:
-        if isinstance(key, bytes) is False:
-            return key
-        elif isinstance(key, str) is True:
-            return key.encode("UTF-8")
-        raise KeyError("string or bytes expected")
 
 
 class JiovData(dict):
@@ -326,23 +275,6 @@ class JiovData(dict):
         return super().__getitem__(
             (key if isinstance(key, IovecKey) else IovecKey(key))
         )
-
-    def keys(self) -> typing.KeysView[IovecKey]:
-        return typing.cast(
-            typing.KeysView[IovecKey],
-            (self.__getkey(x) for x in super().keys())
-        )
-
-    def items(self) -> typing.ItemsView[IovecKey, IovecValue]:
-        return typing.cast(
-            typing.ItemsView[IovecKey, IovecValue],
-            ((x, self[x]) for x in self.keys())
-        )
-
-    def __getkey(self, key: typing.Union[IovecKey, bytes, str]) -> bytes:
-        if isinstance(key, IovecKey) is True:
-            return key
-        return IovecKey(super().__getkey(key))
 
 
 class Jiov(JiovData):
