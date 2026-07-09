@@ -56,3 +56,24 @@ def test_IovecValue_can_be_list_of_ips():
     iovec_value = jail.IovecValue(test_value)
     assert len(iovec_value.raw_value) == 1
     assert isinstance(iovec_value.raw_value[0], ipaddress.IPv4Address)
+
+
+def test_IovecValue_bytes_carry_exactly_one_trailing_null():
+
+    assert jail.IovecValue(b"abc").value == b"abc"
+    assert jail.IovecValue(b"abc\x00").value == b"abc\x00"
+    assert jail.IovecValue(b"abc").iovec.iov_size == 4
+    assert jail.IovecValue(b"abc\x00").iovec.iov_size == 4
+
+
+def test_IovecValue_rejects_too_many_ips(monkeypatch):
+
+    monkeypatch.setattr(jail, "_JAIL_MAX_AF_IPS", 2)
+    ips = [
+        ipaddress.IPv4Address("192.0.2.1"),
+        ipaddress.IPv4Address("192.0.2.2"),
+        ipaddress.IPv4Address("192.0.2.3")
+    ]
+    with pytest.raises(ValueError) as excinfo:
+        jail.IovecValue(ips).value
+    assert "max 2" in str(excinfo.value)

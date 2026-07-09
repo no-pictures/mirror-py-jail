@@ -79,3 +79,22 @@ def test_jail_flag_constants():
     assert jail.JAIL_UPDATE == 0x02
     assert jail.JAIL_ATTACH == 0x04
     assert jail.JAIL_DYING == 0x08
+
+
+def test_IovecKey_compares_by_value():
+    assert jail.IovecKey("name") == jail.IovecKey("name")
+    assert jail.IovecKey("name") == jail.IovecKey(b"name")
+    assert (jail.IovecKey("name") == jail.IovecKey("path")) is False
+    assert (jail.IovecKey("name") == "name") is False
+
+
+def test_jiov_views_iterate_repeatedly():
+    jiov = jail.Jiov(dict(persist=None, path="/rescue"))
+
+    keys = jiov.keys()
+    assert len(list(keys)) == 2
+    assert len(list(keys)) == 2
+
+    items = jiov.items()
+    assert len(list(items)) == 2
+    assert len(list(items)) == 2
